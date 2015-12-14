@@ -145,14 +145,14 @@ int cpuPixelSearchByTripletSerialRun(
 
     // event_tracks.reserve(input.size());
     // events.reserve(input.size());
-    
-    #pragma omp parallel  
+
+    #pragma omp parallel shared(event_tracks, events, input)
     {
 #ifdef TIMING_ENABLED
     #pragma omp single
     timing.start();
-#endif
-        #pragma omp for shared(event_tracks, events, input)
+    #endif
+        #pragma omp for
         for (unsigned int input_index = 0; input_index < input.size(); ++input_index) {
             DEBUG << "Processing data frame " << input_index << std::endl;
 
