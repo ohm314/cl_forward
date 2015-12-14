@@ -138,52 +138,64 @@ int cpuPixelSearchByTripletSerialRun(
     DEBUG << "executing cpuPixelSearchByTriplet with " << input.size() << " events" << std::endl;
     output.resize(input.size());
 
-    std::vector<std::vector<Track>> event_tracks;
-    std::vector<Event> events;
+    // std::vector<std::vector<Track>> event_tracks;
+    // std::vector<Event> events;
+    std::vector<Track>* event_tracks[input.size()];
+    Event* events[input.size()];
 
-    event_tracks.reserve(input.size());
-    events.reserve(input.size());
+    // event_tracks.reserve(input.size());
+    // events.reserve(input.size());
     
-    for (unsigned int input_index = 0; input_index < input.size(); ++input_index) {
-        DEBUG << "Processing data frame " << input_index << std::endl;
-
-        const std::vector<uint8_t>* event_input = input[input_index];
-        Event event((uint8_t*) &(*event_input)[0], event_input->size(), filenames[input_index]);
+    #pragma omp parallel  
+    {
 #ifdef TIMING_ENABLED
         timing.start();
 #endif
-        std::vector<Track> tracks = event.serialSearchByTriplets();
+        #pragma omp for shared(event_tracks, events, input)
+        for (unsigned int input_index = 0; input_index < input.size(); ++input_index) {
+            DEBUG << "Processing data frame " << input_index << std::endl;
+
+            const std::vector<uint8_t>* event_input = input[input_index];
+            Event* event = new Event((uint8_t*) &(*event_input)[0], event_input->size(), filenames[input_index]);
+
+            std::vector<Track> tracks = event->serialSearchByTriplets();
+            DEBUG << "Done. Found " << tracks.size() <<" tracks." << std::endl;
+            // events.push_back(std::move(event));
+            // event_tracks.push_back(std::move(tracks));
+            events[input_index] = event;
+            event_tracks[input_index] = new std::vector<Track>(std::move(tracks));
+        }
 #ifdef  TIMING_ENABLED
         timing.stop();
 #endif
-        DEBUG << "Done. Found " << tracks.size() <<" tracks." << std::endl;
-        events.push_back(std::move(event));
-        event_tracks.push_back(std::move(tracks));
     }
 #ifdef TIMING_ENABLED
     #include <iostream>
     std::cout << "%%% TIME: " << timing.cycles << " cycles." << std::endl;
 #endif
-    for(size_t output_idx=0; output_idx<event_tracks.size(); ++output_idx) { 
+    for(size_t output_idx=0; output_idx<input.size(); ++output_idx) { 
         // Print to output file with event no.
-        const Event event = events.at(output_idx);
-        const std::vector<Track> tracks = event_tracks.at(output_idx);
+        const Event* event = events[output_idx];
+        // const std::vector<Track> tracks = event_tracks.at(output_idx);
+        const std::vector<Track>* tracks = event_tracks[(output_idx)];
 
         if (outtype == OutType::Text) {
-            std::string fileName = get_output_filename(event.filename, OutType::Text);
+            std::string fileName = get_output_filename(event->filename, OutType::Text);
             std::ofstream outfile(fileName, std::ios::out);
             DEBUG << "writing to: " << fileName << std::endl;
             unsigned int track_idx = 0;
-            writeTextTracks(tracks, event, outfile);
+            writeTextTracks(*tracks, *event, outfile);
 
             outfile.close();
         } else if (outtype == OutType::Binary) {
-            std::string fileName = get_output_filename(event.filename, OutType::Binary);
+            std::string fileName = get_output_filename(event->filename, OutType::Binary);
             std::ofstream outfile(fileName, std::ios::out | std::ios::binary);
             DEBUG << "writing to: " << fileName << std::endl;
-            writeBinTracks(tracks, event, outfile);
+            writeBinTracks(*tracks, *event, outfile);
             outfile.close();
         }
+        delete event;
+        delete tracks;
     }
 
     return 0;
