@@ -78,6 +78,8 @@ int independent_execute(
       return gpuPixelSearchByTripletInvocation(converted_input, output);
   } else if (mode == ExecMode::Serial){
       return cpuPixelSearchByTripletSerialRun(converted_input, output, filenames, outtype);
+  } else if (mode == ExecMode::OpenMP){
+      return cpuPixelSearchByTripletOpenMPRun(converted_input, output, filenames, outtype);
   } else {
       DEBUG << "not yet implemented";
       return 0;
@@ -127,15 +129,10 @@ int gpuPixelSearchByTripletInvocation(
   return 0;
 }
 
-/**
-  * Common entrypoint for Gaudi and non-Gaudi
-  * @param input
-  * @param output
-  */
-int cpuPixelSearchByTripletSerialRun(
+int cpuPixelSearchByTripletOpenMPRun(
         const std::vector<const std::vector<uint8_t>* > & input,
         std::vector<std::vector<uint8_t> > & output, std::vector<std::string> &filenames, OutType outtype) {
-    DEBUG << "executing cpuPixelSearchByTriplet with " << input.size() << " events" << std::endl;
+    DEBUG << "executing cpuPixelSearchByTripletOpenMPRun with " << input.size() << " events" << std::endl;
     output.resize(input.size());
 
     // std::vector<std::vector<Track>> event_tracks;
@@ -175,6 +172,77 @@ int cpuPixelSearchByTripletSerialRun(
     #include <iostream>
     std::cout << "%%% TIME: " << timing.cycles << " cycles." << std::endl;
 #endif
+    for(size_t output_idx=0; output_idx<input.size(); ++output_idx) { 
+        // Print to output file with event no.
+        const Event* event = events[output_idx];
+        // const std::vector<Track> tracks = event_tracks.at(output_idx);
+        const std::vector<Track>* tracks = event_tracks[(output_idx)];
+
+        if (outtype == OutType::Text) {
+            std::string fileName = get_output_filename(event->filename, OutType::Text);
+            std::ofstream outfile(fileName, std::ios::out);
+            DEBUG << "writing to: " << fileName << std::endl;
+            unsigned int track_idx = 0;
+            writeTextTracks(*tracks, *event, outfile);
+
+            outfile.close();
+        } else if (outtype == OutType::Binary) {
+            std::string fileName = get_output_filename(event->filename, OutType::Binary);
+            std::ofstream outfile(fileName, std::ios::out | std::ios::binary);
+            DEBUG << "writing to: " << fileName << std::endl;
+            writeBinTracks(*tracks, *event, outfile);
+            outfile.close();
+        }
+        delete event;
+        delete tracks;
+    }
+
+    return 0;
+}
+
+/**
+  * Common entrypoint for Gaudi and non-Gaudi
+  * @param input
+  * @param output
+  */
+int cpuPixelSearchByTripletSerialRun(
+        const std::vector<const std::vector<uint8_t>* > & input,
+        std::vector<std::vector<uint8_t> > & output, std::vector<std::string> &filenames, OutType outtype) {
+    DEBUG << "executing cpuPixelSearchByTripletSerialRun with " << input.size() << " events" << std::endl;
+    output.resize(input.size());
+
+    // std::vector<std::vector<Track>> event_tracks;
+    // std::vector<Event> events;
+    std::vector<Track>* event_tracks[input.size()];
+    Event* events[input.size()];
+
+    // event_tracks.reserve(input.size());
+    // events.reserve(input.size());
+
+#ifdef TIMING_ENABLED
+    timing.start();
+#endif
+
+        for (unsigned int input_index = 0; input_index < input.size(); ++input_index) {
+            DEBUG << "Processing data frame " << input_index << std::endl;
+
+            const std::vector<uint8_t>* event_input = input[input_index];
+            Event* event = new Event((uint8_t*) &(*event_input)[0], event_input->size(), filenames[input_index]);
+
+            std::vector<Track> tracks = event->serialSearchByTriplets();
+            DEBUG << "Done. Found " << tracks.size() <<" tracks." << std::endl;
+            // events.push_back(std::move(event));
+            // event_tracks.push_back(std::move(tracks));
+            events[input_index] = event;
+            event_tracks[input_index] = new std::vector<Track>(std::move(tracks));
+        }
+
+#ifdef  TIMING_ENABLED
+    timing.stop();
+    #include <iostream>
+    std::cout << "%%% TIME: " << timing.cycles << " cycles." << std::endl;
+#endif
+
     for(size_t output_idx=0; output_idx<input.size(); ++output_idx) { 
         // Print to output file with event no.
         const Event* event = events[output_idx];
