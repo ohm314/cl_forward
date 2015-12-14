@@ -149,7 +149,8 @@ int cpuPixelSearchByTripletSerialRun(
     #pragma omp parallel  
     {
 #ifdef TIMING_ENABLED
-        timing.start();
+    #pragma omp single
+    timing.start();
 #endif
         #pragma omp for shared(event_tracks, events, input)
         for (unsigned int input_index = 0; input_index < input.size(); ++input_index) {
@@ -166,7 +167,8 @@ int cpuPixelSearchByTripletSerialRun(
             event_tracks[input_index] = new std::vector<Track>(std::move(tracks));
         }
 #ifdef  TIMING_ENABLED
-        timing.stop();
+    #pragma omp single
+    timing.stop();
 #endif
     }
 #ifdef TIMING_ENABLED
